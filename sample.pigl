@@ -1,0 +1,36 @@
+// C++ style comment
+
+/* 
+    C-style comments
+    On one or more lines
+*/
+
+# shell-like type of comment
+
+
+// include some code here
+%include "init_code.go"
+
+// define tokens
+%token PRINT,INPUT,GOTO, LABEL
+%token STRING, QUOTE
+%token NAME
+
+// define states
+%state _STRING
+
+// starting lex rules
+%lex
+
+%while !_STRING
+
+INPUT	return INPUT
+PRINT	return PRINT
+GOTO	return GOTO
+LABEL	return LABEL
+"		state _STRING
+
+%while _STRING
+
+[^"]+	return STRING
+"		state INIT
