@@ -18,5 +18,5 @@ but rather macros and external files.
 
 ##Syntax
 
-To be defined. See piglex.l sample file
+To be defined. See sample.pigl sample file
 

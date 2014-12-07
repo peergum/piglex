@@ -50,6 +50,8 @@ const (
 	STATE_ACTION
 	STATE_ACTIONBLOCK
 	STATE_ACTIONEND
+
+	USER_STATE
 )
 
 const (
@@ -71,6 +73,8 @@ const (
 	TOKEN_LEN
 	TOKEN_VALUE
 	TOKEN_ERROR
+
+	USER_TOKEN
 )
 
 const (
@@ -113,6 +117,8 @@ var (
 	fName    *string = flag.String("f", "", "File to parse")
 	flags    []string
 	args     []string
+	tokens   = make([]string, 0, 50)
+	states   = []string{"INIT"}
 )
 
 func init() {
@@ -182,7 +188,7 @@ func getTokens(tokens chan *Token, done chan int) {
 	for !finished {
 		select {
 		case token := <-tokens:
-			fmt.Printf("[%s]\n", token.value)
+			fmt.Printf("[%d: %s]\n", token.id, token.value)
 			result += token.value.(string)
 		case <-done:
 			finished = true
@@ -304,6 +310,38 @@ func (lex *Lex) checkKeyword() {
 			}
 		}
 		if !found {
+			for _, usertoken := range tokens {
+				if usertoken == value {
+					token := &Token{
+						id:    USER_TOKEN,
+						char:  0,
+						value: value,
+					}
+					lex.tokens <- token
+					logMsg("User token: ", token.value)
+					lex.getToken().value = ""
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			for _, userstate := range states {
+				if userstate == value {
+					token := &Token{
+						id:    USER_STATE,
+						char:  0,
+						value: value,
+					}
+					lex.tokens <- token
+					logMsg("User state: ", token.value)
+					lex.getToken().value = ""
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
 			token := &Token{
 				id:    TOKEN_ERROR,
 				char:  0,
@@ -345,14 +383,24 @@ func (lex *Lex) checkCommand() {
 		lex.popState()
 		lex.replaceState(state)
 		return
-	case "init":
-		logMsg("Init file:", strings.Join(fields[1:], ", "))
+	case "while":
+		logMsg("While:", strings.Join(fields[1:], " "))
+	case "include":
+		logMsg("Include file:", strings.Join(fields[1:], ", "))
 	case "output":
 		logMsg("Output file (lexer):", strings.Join(fields[1:], ", "))
 	case "token":
 		logMsg("Token(s):", fields[1:])
+		tokenList := strings.Replace(strings.Join(fields[1:], ","), " ", "", -1)
+		for _, token := range strings.Split(tokenList, ",") {
+			tokens = append(tokens, token)
+		}
 	case "state":
 		logMsg("State(s):", fields[1:])
+		stateList := strings.Replace(strings.Join(fields[1:], ","), " ", "", -1)
+		for _, state := range strings.Split(stateList, ",") {
+			states = append(states, state)
+		}
 	case "alias":
 		logMsg("Alias:", fields[1], "for", fields[2])
 	}
@@ -616,7 +664,6 @@ func (lex *Lex) stateLineComment() error {
 //
 func (lex *Lex) statePercent() error {
 	logMsg("=== INSTRUCTION STATE ===")
-
 	for lex.getState().current == STATE_PERCENT {
 		c, err := lex.getNext()
 		if err != nil {
@@ -671,7 +718,7 @@ func (lex *Lex) stateLexRules() error {
 				current: STATE_PERCENT,
 				token:   token,
 			}
-			lex.replaceState(state)
+			lex.pushState(state)
 		case (strings.IndexRune(BLANKSPACES, c) >= 0 || c == '\n') && lex.position > 0:
 			token := &Token{
 				id:    TOKEN_REGEXP,
