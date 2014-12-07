@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,7 @@ import (
 const (
 	VERSION     = "0.1"
 	BLANKSPACES = " \t"
+	DEBUG       = true
 )
 
 const (
@@ -47,6 +49,7 @@ const (
 	STATE_LEXRULES
 	STATE_ACTION
 	STATE_ACTIONBLOCK
+	STATE_ACTIONEND
 )
 
 const (
@@ -62,7 +65,29 @@ const (
 	TOKEN_ACTIONBLOCK
 	TOKEN_ACTION
 	TOKEN_BLOCKEND
+	TOKEN_RETURN
+	TOKEN_STATE
+	TOKEN_TOKEN
+	TOKEN_LEN
+	TOKEN_VALUE
+	TOKEN_ERROR
 )
+
+const (
+	CMD_LEX = iota
+	CMD_INIT
+	CMD_TOKEN
+	CMD_STATE
+)
+
+var keywords = map[string]int{
+	"return": TOKEN_RETURN,
+	"state":  TOKEN_STATE,
+	"token":  TOKEN_TOKEN,
+	"len":    TOKEN_LEN,
+	"value":  TOKEN_VALUE,
+	"error":  TOKEN_ERROR,
+}
 
 type Token struct {
 	id    int
@@ -97,7 +122,6 @@ func init() {
 	if *fVersion {
 		showVersion()
 	}
-
 }
 
 func main() {
@@ -158,10 +182,9 @@ func getTokens(tokens chan *Token, done chan int) {
 	for !finished {
 		select {
 		case token := <-tokens:
-			fmt.Printf("[%s]", token.value)
+			fmt.Printf("[%s]\n", token.value)
 			result += token.value.(string)
 		case <-done:
-			fmt.Println("\nResult:", result)
 			finished = true
 		}
 	}
@@ -195,6 +218,8 @@ func (lex *Lex) nextState() error {
 		return lex.stateAction()
 	case STATE_ACTIONBLOCK:
 		return lex.stateActionBlock()
+	case STATE_ACTIONEND:
+		return lex.stateActionEnd()
 	default:
 		return lex.stateError()
 	}
@@ -254,43 +279,140 @@ func (lex *Lex) getNext() (c rune, err error) {
 		}
 		return 0, err
 	}
-	if c == '\n' {
-		lex.position = -1
-	} else {
+	if c != '\n' {
 		lex.position++
 	}
 	return
+}
+
+func (lex *Lex) checkKeyword() {
+	value := lex.getToken().value.(string)
+	if len(value) > 0 {
+		found := false
+		for keyword, tokenId := range keywords {
+			if keyword == value {
+				token := &Token{
+					id:    tokenId,
+					char:  0,
+					value: value,
+				}
+				lex.tokens <- token
+				logMsg("Token: ", token.value)
+				lex.getToken().value = ""
+				found = true
+				break
+			}
+		}
+		if !found {
+			token := &Token{
+				id:    TOKEN_ERROR,
+				char:  0,
+				value: "ERR: " + value,
+			}
+			lex.tokens <- token
+			logMsg("Token: ", token.value)
+		}
+	}
+	token := &Token{
+		id:    0,
+		char:  0,
+		value: "",
+	}
+	lex.replaceToken(token)
+}
+
+func (lex *Lex) checkCommand() {
+	value := lex.getToken().value.(string)
+	token := &Token{
+		id:    TOKEN_INSTRUCTION,
+		char:  0,
+		value: value,
+	}
+	lex.tokens <- token
+	logMsg("Token: ", token.value)
+	fields := strings.Fields(value)
+	switch fields[0] {
+	case "lex":
+		token = &Token{
+			id:    0,
+			char:  0,
+			value: "",
+		}
+		state := &State{
+			current: STATE_LEXRULES,
+			token:   token,
+		}
+		lex.popState()
+		lex.replaceState(state)
+		return
+	case "init":
+		logMsg("Init file:", strings.Join(fields[1:], ", "))
+	case "output":
+		logMsg("Output file (lexer):", strings.Join(fields[1:], ", "))
+	case "token":
+		logMsg("Token(s):", fields[1:])
+	case "state":
+		logMsg("State(s):", fields[1:])
+	case "alias":
+		logMsg("Alias:", fields[1], "for", fields[2])
+	}
+	lex.popState()
+}
+
+func (lex *Lex) checkComments(c rune) error {
+	switch {
+	case c == '/':
+		token := &Token{
+			id:    '/',
+			char:  '/',
+			value: c,
+		}
+		state := &State{
+			current: STATE_SLASH,
+			token:   token,
+		}
+		if lex.pushState(state) != nil {
+			return errors.New("Oops, can't push state!")
+		}
+	case c == '#':
+		token := &Token{
+			id:    '#',
+			char:  '#',
+			value: string(c),
+		}
+		state := &State{
+			current: STATE_LINECOMMENT,
+			token:   token,
+		}
+		if lex.pushState(state) != nil {
+			return errors.New("Oops, can't push state!")
+		}
+	}
+
+	return nil
 }
 
 //
 // Basic state
 //
 func (lex *Lex) stateInit() error {
-	fmt.Println("\n=== INITIAL STATE ===")
+	logMsg("=== INITIAL STATE ===")
 	for lex.getState().current == STATE_INIT {
 		c, err := lex.getNext()
 		if err != nil {
 			return err
 		}
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_INIT {
+			break
+		}
 		switch {
-		case c == '/':
-			token := &Token{
-				id:    '/',
-				char:  '/',
-				value: c,
-			}
-			state := &State{
-				current: STATE_SLASH,
-				token:   token,
-			}
-			if lex.pushState(state) != nil {
-				return errors.New("Oops, can't push state!")
-			}
 		case c == '%' && lex.position == 0:
 			token := &Token{
-				id:    '%',
-				char:  '%',
-				value: string(c),
+				id:    0,
+				char:  0,
+				value: "",
 			}
 			state := &State{
 				current: STATE_PERCENT,
@@ -300,6 +422,9 @@ func (lex *Lex) stateInit() error {
 				return errors.New("Oops, can't push state!")
 			}
 			//lex.tokens <- token
+		case c == '\r':
+		case c == '\n':
+			lex.position = -1
 		case strings.IndexRune(BLANKSPACES, c) >= 0:
 			// skip blanks
 		default:
@@ -310,6 +435,7 @@ func (lex *Lex) stateInit() error {
 			}
 			lex.replaceToken(token)
 			lex.tokens <- token
+			logMsg("Token: ", token.value)
 		}
 	}
 	return nil
@@ -324,8 +450,8 @@ func (lex *Lex) stateSlash() error {
 		if err != nil {
 			return err
 		}
-		switch c {
-		case '/':
+		switch {
+		case c == '/':
 			// line comment
 			token := &Token{
 				id:    TOKEN_DOUBLESLASH,
@@ -338,7 +464,7 @@ func (lex *Lex) stateSlash() error {
 			}
 			lex.replaceState(state)
 			//lex.tokens <- token
-		case '*':
+		case c == '*':
 			// C style comment
 			token := &Token{
 				id:    TOKEN_SLASHSTAR,
@@ -351,6 +477,7 @@ func (lex *Lex) stateSlash() error {
 			}
 			lex.replaceState(state)
 			//lex.tokens <- token
+		case strings.IndexRune(BLANKSPACES, c) >= 0:
 		default:
 			lex.tokens <- lex.getToken()
 			token := &Token{
@@ -361,6 +488,7 @@ func (lex *Lex) stateSlash() error {
 			lex.popState()
 			lex.replaceToken(token)
 			lex.tokens <- token
+			logMsg("Token: ", token.value)
 		}
 	}
 	return nil
@@ -370,7 +498,7 @@ func (lex *Lex) stateSlash() error {
 // C-style comment... expecting */ to leave
 //
 func (lex *Lex) stateCComment() error {
-	fmt.Println("\n=== C COMMENT ===")
+	logMsg("=== C COMMENT ===")
 	for lex.getState().current == STATE_CCOMMENT {
 		c, err := lex.getNext()
 		if err != nil {
@@ -417,8 +545,8 @@ func (lex *Lex) stateStar() error {
 			}
 			lex.popState()
 			lex.popState()
-			lex.replaceToken(token)
 			lex.tokens <- token
+			logMsg("Token: ", token.value)
 		case '*':
 			token := &Token{
 				id:    '*',
@@ -437,6 +565,8 @@ func (lex *Lex) stateStar() error {
 			lex.popState()
 			lex.replaceToken(token)
 			lex.tokens <- token
+			logMsg("Token: ", token.value)
+
 		}
 	}
 	return nil
@@ -446,7 +576,7 @@ func (lex *Lex) stateStar() error {
 // we're waiting for the end of line
 //
 func (lex *Lex) stateLineComment() error {
-	fmt.Println("\n=== C++ COMMENT ===")
+	logMsg("=== INLINE COMMENT ===")
 	for lex.getState().current == STATE_LINECOMMENT {
 		c, err := lex.getNext()
 		if err != nil {
@@ -456,14 +586,17 @@ func (lex *Lex) stateLineComment() error {
 		case '\r':
 			// do nothing (CR)
 		case '\n':
+			lex.position = -1
 			token := &Token{
 				id:    TOKEN_COMMENTLINE,
 				char:  0,
 				value: lex.getState().token.value,
 			}
 			lex.popState()
-			lex.replaceToken(token)
 			lex.tokens <- token
+			//lex.replaceToken(token)
+			logMsg("Token: ", token.value)
+
 			//lex.printTokenValue()
 		default:
 			token := &Token{
@@ -478,35 +611,27 @@ func (lex *Lex) stateLineComment() error {
 	return nil
 }
 
+//
+// instruction/command mode
+//
 func (lex *Lex) statePercent() error {
-	fmt.Println("\n=== INSTRUCTION STATE ===")
+	logMsg("=== INSTRUCTION STATE ===")
 
 	for lex.getState().current == STATE_PERCENT {
 		c, err := lex.getNext()
 		if err != nil {
 			return err
 		}
-		switch c {
-		case '\r':
-		case '\n':
-			token := &Token{
-				id:    TOKEN_INSTRUCTION,
-				char:  0,
-				value: lex.getToken().value,
-			}
-			command := strings.Fields(token.value.(string))
-			if strings.EqualFold(command[0], "%lex") {
-				state := &State{
-					current: STATE_LEXRULES,
-					token:   token,
-				}
-				lex.popState()
-				lex.replaceState(state)
-			} else {
-				lex.popState()
-				lex.replaceToken(token)
-			}
-			lex.tokens <- token
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_PERCENT {
+			break
+		}
+		switch {
+		case c == '\r':
+		case c == '\n':
+			lex.position = -1
+			lex.checkCommand()
 		default:
 			token := &Token{
 				id:    0,
@@ -520,44 +645,61 @@ func (lex *Lex) statePercent() error {
 	return nil
 }
 
+//
+// regular expression
+//
 func (lex *Lex) stateLexRules() error {
-	fmt.Println("\n=== LEX RULES STATE ===")
-	token := &Token{
-		id:    0,
-		char:  0,
-		value: "",
-	}
-	lex.replaceToken(token)
+	logMsg("=== LEX RULES STATE ===")
 	for lex.getState().current == STATE_LEXRULES {
 		c, err := lex.getNext()
 		if err != nil {
 			return err
 		}
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_LEXRULES {
+			break
+		}
 		switch {
 		case c == '%' && lex.position == 0:
 			token := &Token{
-				id:    '%',
-				char:  '%',
-				value: string(c),
+				id:    0,
+				char:  0,
+				value: "",
 			}
 			state := &State{
 				current: STATE_PERCENT,
 				token:   token,
 			}
 			lex.replaceState(state)
-		case strings.IndexRune(BLANKSPACES, c) >= 0 || c == '\n':
+		case (strings.IndexRune(BLANKSPACES, c) >= 0 || c == '\n') && lex.position > 0:
 			token := &Token{
 				id:    TOKEN_REGEXP,
 				char:  c,
-				value: lex.getToken().value.(string),
+				value: lex.getToken().value,
+			}
+			lex.tokens <- token
+			logMsg("Token: ", token.value)
+			token = &Token{
+				id:    0,
+				char:  0,
+				value: "",
 			}
 			state := &State{
 				current: STATE_ACTION,
 				token:   token,
 			}
 			lex.replaceState(state)
-			lex.tokens <- token
 		case c == '\r':
+		case c == '\n':
+			lex.position = -1
+			token := &Token{
+				id:    0,
+				char:  0,
+				value: "",
+			}
+			lex.replaceToken(token)
+			//lex.tokens <- token
 		default:
 			token := &Token{
 				id:    0,
@@ -571,47 +713,68 @@ func (lex *Lex) stateLexRules() error {
 	return nil
 }
 
+//
+// action
+//
 func (lex *Lex) stateAction() error {
-	fmt.Println("\n=== LEX ACTION STATE ===")
-	token := &Token{
-		id:    0,
-		char:  0,
-		value: "",
-	}
-	lex.replaceToken(token)
+	logMsg("=== LEX ACTION STATE ===")
 	for lex.getState().current == STATE_ACTION {
 		c, err := lex.getNext()
 		if err != nil {
 			return err
 		}
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_ACTION {
+			break
+		}
 		switch {
 		case strings.IndexRune(BLANKSPACES, c) >= 0:
+			lex.checkKeyword()
 		case c == '\r':
-		case c == '{':
+		case c == '{' && lex.position > 0:
 			token := &Token{
 				id:    TOKEN_BLOCKSTART,
 				char:  c,
 				value: "{",
+			}
+			lex.tokens <- token
+			logMsg("Token: ", token.value)
+			token = &Token{
+				id:    0,
+				char:  0,
+				value: "",
 			}
 			state := &State{
 				current: STATE_ACTIONBLOCK,
 				token:   token,
 			}
 			lex.replaceState(state)
-		case c == '\n':
+		case c == '\n' && lex.getToken().value.(string) != "":
 			lex.position = -1
+			lex.checkKeyword()
 			token := &Token{
-				id:    TOKEN_ACTION,
-				char:  c,
-				value: lex.getToken().value.(string),
+				id:    0,
+				char:  0,
+				value: "",
 			}
 			state := &State{
 				current: STATE_LEXRULES,
 				token:   token,
 			}
 			lex.replaceState(state)
-			lex.tokens <- token
-			fmt.Println("ACTIONEND")
+		case c == '\n':
+			lex.position = -1
+			token := &Token{
+				id:    0,
+				char:  0,
+				value: "",
+			}
+			state := &State{
+				current: STATE_LEXRULES,
+				token:   token,
+			}
+			lex.replaceState(state)
 		default:
 			token := &Token{
 				id:    0,
@@ -625,21 +788,27 @@ func (lex *Lex) stateAction() error {
 	return nil
 }
 
+//
+// action block
+//
 func (lex *Lex) stateActionBlock() error {
-	fmt.Println("\n=== LEX ACTION BLOCK STATE ===")
-	token := &Token{
-		id:    0,
-		char:  0,
-		value: "",
-	}
-	lex.replaceToken(token)
+	logMsg("=== LEX ACTION BLOCK STATE ===")
 	for lex.getState().current == STATE_ACTIONBLOCK {
 		c, err := lex.getNext()
 		if err != nil {
 			return err
 		}
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_ACTIONBLOCK {
+			break
+		}
 		switch {
-		case strings.IndexRune(BLANKSPACES, c) >= 0:
+		case strings.IndexRune(BLANKSPACES, c) >= 0 || c == '\n':
+			lex.checkKeyword()
+			if c == '\n' {
+				lex.position = -1
+			}
 		case c == '\r':
 		case c == '}':
 			token := &Token{
@@ -647,12 +816,18 @@ func (lex *Lex) stateActionBlock() error {
 				char:  c,
 				value: lex.getToken().value.(string) + string("}"),
 			}
+			lex.tokens <- token
+			logMsg("Token: ", token.value)
+			token = &Token{
+				id:    0,
+				char:  0,
+				value: "",
+			}
 			state := &State{
-				current: STATE_LEXRULES,
+				current: STATE_ACTIONEND,
 				token:   token,
 			}
 			lex.replaceState(state)
-			lex.tokens <- token
 		default:
 			token := &Token{
 				id:    0,
@@ -666,6 +841,44 @@ func (lex *Lex) stateActionBlock() error {
 	return nil
 }
 
+func (lex *Lex) stateActionEnd() error {
+	logMsg("=== LEX ACTION END STATE ===")
+	for lex.getState().current == STATE_ACTIONEND {
+		c, err := lex.getNext()
+		if err != nil {
+			return err
+		}
+		lex.checkComments(c)
+		// check if we left init mode
+		if lex.getState().current != STATE_ACTIONEND {
+			break
+		}
+		switch {
+		case strings.IndexRune(BLANKSPACES, c) >= 0:
+		case c == '\r':
+		case c == '\n':
+			token := &Token{
+				id:    0,
+				char:  0,
+				value: "",
+			}
+			state := &State{
+				current: STATE_LEXRULES,
+				token:   token,
+			}
+			lex.replaceState(state)
+		default:
+		}
+	}
+	return nil
+}
+
 func (lex *Lex) stateError() error {
 	return errors.New(lex.getToken().value.(string))
+}
+
+func logMsg(v ...interface{}) {
+	if DEBUG {
+		log.Println(v)
+	}
 }
