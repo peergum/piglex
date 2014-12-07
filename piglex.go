@@ -118,7 +118,7 @@ var (
 	flags    []string
 	args     []string
 	tokens   = make([]string, 0, 50)
-	states   = []string{"INIT"}
+	states   = []string{"_INIT"}
 )
 
 func init() {
@@ -383,24 +383,30 @@ func (lex *Lex) checkCommand() {
 		lex.popState()
 		lex.replaceState(state)
 		return
-	case "while":
-		logMsg("While:", strings.Join(fields[1:], " "))
+	case "only":
+		logMsg("Only:", strings.Join(fields[1:], " "))
+	case "except":
+		logMsg("Except:", strings.Join(fields[1:], " "))
 	case "include":
 		logMsg("Include file:", strings.Join(fields[1:], ", "))
 	case "output":
 		logMsg("Output file (lexer):", strings.Join(fields[1:], ", "))
 	case "token":
-		logMsg("Token(s):", fields[1:])
 		tokenList := strings.Replace(strings.Join(fields[1:], ","), " ", "", -1)
 		for _, token := range strings.Split(tokenList, ",") {
-			tokens = append(tokens, token)
+			if token != "" {
+				tokens = append(tokens, token)
+			}
 		}
+		logMsg("Token(s):", strings.Join(tokens, ", "))
 	case "state":
-		logMsg("State(s):", fields[1:])
 		stateList := strings.Replace(strings.Join(fields[1:], ","), " ", "", -1)
 		for _, state := range strings.Split(stateList, ",") {
-			states = append(states, state)
+			if state != "" {
+				states = append(states, state)
+			}
 		}
+		logMsg("State(s):", strings.Join(states, ", "))
 	case "alias":
 		logMsg("Alias:", fields[1], "for", fields[2])
 	}
@@ -719,7 +725,7 @@ func (lex *Lex) stateLexRules() error {
 				token:   token,
 			}
 			lex.pushState(state)
-		case (strings.IndexRune(BLANKSPACES, c) >= 0 || c == '\n') && lex.position > 0:
+		case (c == '\t' || c == '\n') && lex.position > 0:
 			token := &Token{
 				id:    TOKEN_REGEXP,
 				char:  c,

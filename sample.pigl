@@ -22,15 +22,22 @@
 // starting lex rules
 %lex
 
-%while !_STRING
+%except _STRING
 
 INPUT	return INPUT
 PRINT	return PRINT
 GOTO	return GOTO
 LABEL	return LABEL
-"		state _STRING
+"		{
+    state _STRING
+    return QUOTE
+    }
+[^ ]+	return NAME
 
-%while _STRING
+%only _STRING
 
 [^"]+	return STRING
-"		state INIT
+"		{
+    state _INIT
+    return QUOTE
+    }
