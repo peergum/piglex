@@ -69,6 +69,28 @@ regexp	{
 }
 ```
 
+####Regular Expressions
+
+Regular expression used are using [RE2 standard](http://code.google.com/p/re2/wiki/Syntax).
+The lexer will try to match the longest rule defined.
+
+Use (?i) in front of your expressions if you want them to be case-insensitive, or simply use
+-i for a general case-insensitive lexer.
+
+####Recognized Actions
+
+All actions should either change the state of the lexer, return a token or do both. Anything else is also
+possible through _macros_.
+
+* `return TOKEN_NAME` returns pre-defined token (%token)
+* `state _STATE_NAME` switches the lexer to pre-defined state (%state)
+* `macro_name([parameter, ...])` calls macro_`macro_name`
+
+Usable parameters:
+* `token` the current token
+* `value` the value of the current token (string)
+* `'character'` the character value of the token if any
+
 **Notes**:
 
 * The regular expression and the action or action block must be separated by one or more *TAB* character(s)

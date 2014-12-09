@@ -1,12 +1,7 @@
-// C++ style comment
-
-/* 
-    C-style comments
-    On one or more lines
+/*
+    This is a sample of .pigl file
+    to generate a very simple lexer for BASIC
 */
-
-# shell-like type of comment
-
 
 // include some code here
 %include "init_code.go"

@@ -33,7 +33,7 @@ import (
 const (
 	VERSION     = "0.1"
 	BLANKSPACES = " \t"
-	DEBUG       = true
+	DEBUG       = false
 )
 
 const (
