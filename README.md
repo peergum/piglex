@@ -18,5 +18,5 @@ but rather macros and external files.
 
 ##Syntax
 
-To be defined. See sample.pigl sample file
+See [SYNTAX.md](syntax.md) 
 

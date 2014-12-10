@@ -3,6 +3,9 @@ Syntax
 
 ##PigLex
 
+**Important**: Part of the syntax for PigYacc is similar to [PigYacc](http://github.com/peergum/pigyacc)'s. Both can be part of the same file without generating
+any conflict, and this is even recommended if you use both PigLex and PigYacc.
+
 ###comments
 
 * C++ (//...) , C (/* ... */) and bash (#...) style comments are accepted.
@@ -100,7 +103,3 @@ Usable parameters:
 
 
 _(to be completed)_
-
-##PigYacc
-
-_(coming soon)_
