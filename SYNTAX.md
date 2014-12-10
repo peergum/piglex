@@ -5,7 +5,7 @@ Syntax
 
 ###comments
 
-* C++, C and bash style comments are accepted.
+* C++ (//...) , C (/* ... */) and bash (#...) style comments are accepted.
 * C++ and bash comments are on one line only, but can start anywhere in the line
 * C comments can spread on several lines and can start and end anywhere in a line
 * C comments cannot be embedded at this time.

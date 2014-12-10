@@ -33,7 +33,6 @@ import (
 const (
 	VERSION     = "0.1"
 	BLANKSPACES = " \t"
-	DEBUG       = false
 )
 
 const (
@@ -115,6 +114,8 @@ var (
 	app      string  = filepath.Base(os.Args[0])
 	fVersion *bool   = flag.Bool("v", false, "Show Version")
 	fName    *string = flag.String("f", "", "File to parse")
+	fDebug   *bool   = flag.Bool("d", false, "Debug Mode")
+	fOutput  *string = flag.String("o", "lexer-defs.go", "Definition file to create")
 	flags    []string
 	args     []string
 	tokens   = make([]string, 0, 50)
@@ -190,6 +191,7 @@ func getTokens(tokens chan *Token, done chan int) {
 		case token := <-tokens:
 			fmt.Printf("[%d: %s]\n", token.id, token.value)
 			result += token.value.(string)
+			//handleToken(token)
 		case <-done:
 			finished = true
 		}
@@ -931,7 +933,7 @@ func (lex *Lex) stateError() error {
 }
 
 func logMsg(v ...interface{}) {
-	if DEBUG {
+	if *fDebug {
 		log.Println(v)
 	}
 }
