@@ -113,7 +113,8 @@ type Lex struct {
 var (
 	app      string  = filepath.Base(os.Args[0])
 	fVersion *bool   = flag.Bool("v", false, "Show Version")
-	fName    *string = flag.String("f", "", "File to parse")
+	fLex     *string = flag.String("l", "lex.pigl", "File with PigLex rules")
+	fName    *string = flag.String("f", "", "Source file to parse")
 	fDebug   *bool   = flag.Bool("d", false, "Debug Mode")
 	fOutput  *string = flag.String("o", "lexer-defs.go", "Definition file to create")
 	flags    []string
@@ -134,15 +135,15 @@ func init() {
 func main() {
 	fmt.Printf("Welcome to %s.\n", app)
 
-	if *fName == "" {
-		fmt.Println("No file.")
+	if *fLex == "" {
+		fmt.Println("No PigLex file informed.")
 		os.Exit(1)
 	}
 	var lexFile *os.File
 	var err error
 
-	if lexFile, err = os.Open(*fName); err != nil {
-		fmt.Printf("Can't open file %s", *fName)
+	if lexFile, err = os.Open(*fLex); err != nil {
+		fmt.Printf("Can't open PigLex file %s", *fLex)
 		os.Exit(1)
 	}
 	defer lexFile.Close()
